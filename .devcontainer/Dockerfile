@@ -1,56 +1,26 @@
-# The Skills Network Cloud IDE uses Ubuntu 18.04 :(
-FROM ubuntu:18.04
+# Start with a Python 3.9 slim base image
+FROM python:3.9-slim
 
-# Add any tools that are needed
-RUN apt-get update && \
-    apt-get install -y sudo \
-        vim \
-        make \
-        git \
-        zip \
-        tree \
-        curl \
-        wget \
-        jq \
-        software-properties-common \
-        python3-pip \
-        python3-dev
+# Set the working directory inside the container
+WORKDIR /app
 
-# Installing K3D for local Kubernetes development
-RUN curl -s "https://raw.githubusercontent.com/rancher/k3d/main/install.sh" | sudo bash
+# Copy the requirements.txt file into the container
+COPY requirements.txt .
 
-# Installing Tekton CLI
-RUN curl -LO https://github.com/tektoncd/cli/releases/download/v0.18.0/tkn_0.18.0_Linux_x86_64.tar.gz && \
-    tar xvzf tkn_0.18.0_Linux_x86_64.tar.gz -C /usr/local/bin/ tkn && \
-    ln -s /usr/local/bin/tkn /usr/bin/tkn
+# Install dependencies from requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Install OpenShift CLI
-RUN curl -LO https://github.com/openshift/origin/releases/download/v3.11.0/openshift-origin-client-tools-v3.11.0-0cbc58b-linux-64bit.tar.gz && \
-    tar xvzf openshift-origin-client-tools-v3.11.0-0cbc58b-linux-64bit.tar.gz && \
-    install openshift-origin-client-tools-v3.11.0-0cbc58b-linux-64bit/oc /usr/local/bin/oc && \
-    ln -s /usr/local/bin/oc /usr/bin/oc
+# Copy the application code into the container
+COPY service/ ./service/
 
-# Create a user for development
-ARG USERNAME=theia
-ARG USER_UID=1000
-ARG USER_GID=$USER_UID
+# Create a non-root user named 'theia'
+RUN useradd --uid 1000 theia && chown -R theia /app
 
-# Create the user with passwordless sudo privileges
-RUN groupadd --gid $USER_GID $USERNAME \
-    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME -s /bin/bash \
-    && usermod -aG sudo $USERNAME \
-    && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
-    && chmod 0440 /etc/sudoers.d/$USERNAME
+# Switch to the 'theia' user for better security
+USER theia
 
-# Set up the Python development environment
-WORKDIR /home/project
-RUN python3 -m pip install --upgrade pip wheel
+# Expose port 8080 to allow external access
+EXPOSE 8080
 
-ENV PORT 8000
-EXPOSE $PORT
-
-# Enable color terminal for docker exec bash
-ENV TERM=xterm-256color
-
-# Become a regular user
-USER $USERNAME
+# Command to run the application using Gunicorn
+CMD ["gunicorn", "--bind=0.0.0.0:8080", "--log-level=info", "service:app"]
